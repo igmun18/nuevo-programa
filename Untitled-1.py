@@ -1,132 +1,135 @@
 import customtkinter as ctk
+from tkinterdnd2 import DND_FILES, TkinterDnD
 from tkinter import filedialog, messagebox
-from openpyxl import load_workbook
-from copy import copy
-from dateutil.relativedelta import relativedelta
-from datetime import datetime
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Alignment
+from PIL import Image
+import os
+import openpyxl
 
-# --- 1. INTERFAZ Y FUNCIONES DE APOYO ---
-
-def buscar_archivo():
-    archivo = filedialog.askopenfilename(filetypes=[("Archivos de Excel", "*.xlsx")])
-    if archivo:
-        entry_path.delete(0, ctk.END)
-        entry_path.insert(0, archivo)
-
-def ejecutar_macro():
-    # Capturamos los datos de la interfaz para usarlos en TU código
-    path = entry_path.get()
-    porcentaje_input = entry_porcentaje.get()
-
-    if not path:
-        messagebox.showwarning("Google", "Selecciona un archivo primero.")
-        return
-
-    try:
-        # Convertimos tu porcentaje (ej: 15) al factor que usas (1.15)
-        factor_multiplicador = 1 + (float(porcentaje_input) / 100)
+class App(ctk.CTk, TkinterDnD.Tk):
+    def __init__(self):
+        ctk.CTk.__init__(self)
+        TkinterDnD.Tk.__init__(self)
         
-        # --- AQUÍ EMPIEZA TU CÓDIGO ORIGINAL ---
-        wb = load_workbook(path)
+        ctk.set_appearance_mode("dark")
+        self.title("Macro Excel Pro")
+        self.geometry("600x700")
 
-        for ws in wb.worksheets:
-            ultima_columna = ws.max_column
+        # --- 1. CARGA DE ICONO ---
+        try:
+            self.icono_excel = ctk.CTkImage(light_image=Image.open("excel_icon.png"),
+                                            dark_image=Image.open("excel_icon.png"),
+                                            size=(25, 25))
+        except:
+            self.icono_excel = None 
 
-            header_origen = ws.cell(row=1, column=ultima_columna)
-            header_destino = ws.cell(row=1, column=ultima_columna + 1)
+        self.rutas_archivos = []
 
-            valor_header = header_origen.value
-            fecha = None
+        # --- 2. SECCIÓN DE RUTA Y BUSCAR ---
+        frame_path = ctk.CTkFrame(self)
+        frame_path.pack(pady=20, padx=20, fill="x")
 
-            if isinstance(valor_header, str):
-                try:
-                    fecha = datetime.strptime(valor_header, "%d/%m/%Y")
-                except:
-                    fecha = datetime.now()
-            elif isinstance(valor_header, datetime):
-                fecha = valor_header
+        self.entry_path = ctk.CTkEntry(frame_path, placeholder_text="Ruta del archivo...")
+        self.entry_path.pack(side="left", padx=10, expand=True, fill="x")
 
-            if fecha:
-                nueva_fecha = fecha + relativedelta(months=1)
-                header_destino.value = nueva_fecha
-                header_destino.number_format = "DD/MM/YYYY"
+        btn_buscar = ctk.CTkButton(frame_path, text="Buscar", width=100, command=self.buscar_archivo)
+        btn_buscar.pack(side="right", padx=10)
 
-            header_destino.font = copy(header_origen.font)
-            header_destino.border = copy(header_origen.border)
-            header_destino.fill = copy(header_origen.fill)
+        # --- 3. SECCIÓN DE PORCENTAJE ---
+        ctk.CTkLabel(self, text="Porcentaje de aumento (%):", font=("Arial", 13, "bold")).pack(pady=(10, 0))
+        self.entry_porcentaje = ctk.CTkEntry(self, width=120, placeholder_text="Ej: 15")
+        self.entry_porcentaje.insert(0, "15") 
+        self.entry_porcentaje.pack(pady=10)
 
-            header_destino.alignment = Alignment(
-                wrap_text=True, 
-                horizontal=header_origen.alignment.horizontal, 
-                vertical=header_origen.alignment.vertical
-            ) 
+        # --- 4. ÁREA DE DRAG & DROP ---
+        self.frame_drop = ctk.CTkFrame(self, height=200, border_width=2, border_color="#3B3B3B")
+        self.frame_drop.pack(pady=10, padx=20, fill="x")
+        
+        self.label_drop = ctk.CTkLabel(self.frame_drop, text="O arrastra tus archivos aquí ↓")
+        self.label_drop.pack(pady=10)
 
-            for i in range(2, ws.max_row + 1):
-                celda_origen = ws.cell(row=i, column=ultima_columna)
-                celda_destino = ws.cell(row=i, column=ultima_columna + 1)       
+        # Frame con scroll para ver los iconos
+        self.lista_iconos_frame = ctk.CTkScrollableFrame(self, label_text="Archivos seleccionados", height=250)
+        self.lista_iconos_frame.pack(pady=10, padx=20, fill="both", expand=True)
 
-                valor = celda_origen.value
+        # --- 5. BOTÓN EJECUTAR --- 
+        self.btn_ejecutar = ctk.CTkButton(self, text="APLICAR MACRO", fg_color="#0B1575", hover_color="#2808B4", 
+                                     height=45, font=("Arial", 14, "bold"), command=self.ejecutar_macro)
+        self.btn_ejecutar.pack(pady=20)
 
-                try:
-                    if isinstance(valor, (int, float)):
-                        # Cambiamos el 1.15 fijo por tu factor dinámico
-                        celda_destino.value = valor * factor_multiplicador
-                    else:
-                        celda_destino.value = valor
-                except:
-                    celda_destino.value = valor
-            
-                if celda_origen.has_style:
-                    celda_destino.font = copy(celda_origen.font)
-                    celda_destino.border = copy(celda_origen.border)
-                    celda_destino.fill = copy(celda_origen.fill)
-                    celda_destino.number_format = copy(celda_origen.number_format)
+        self.frame_drop.drop_target_register(DND_FILES)
+        self.frame_drop.dnd_bind('<<Drop>>', self.al_soltar_archivo)
 
-                    nueva_ali = copy(celda_origen.alignment)
-                    nueva_ali.wrap_text = True
-                    celda_destino.alignment = nueva_ali
-            
-            letra_orig = get_column_letter(ultima_columna)
-            letra_dest = get_column_letter(ultima_columna + 1)
-            ws.column_dimensions[letra_dest].width = ws.column_dimensions[letra_orig].width
+    def buscar_archivo(self):
+        archivos = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx *.xls")])
+        if archivos:
+            self.agregar_a_lista(archivos)
 
-        # Guardamos con un nombre que indique que ya está listo
-        wb.save(path)
-        messagebox.showinfo("Google", f"¡Listo! Archivo guardado en:\n{path}")
-        # --- AQUÍ TERMINA TU CÓDIGO ORIGINAL ---
+    def al_soltar_archivo(self, event):
+        rutas = self.tk.splitlist(event.data)
+        self.agregar_a_lista(rutas)
 
-    except Exception as e:
-        messagebox.showerror("Error", f"Algo falló: {e}")
+    def agregar_a_lista(self, rutas):
+        for ruta in rutas:
+            ruta = ruta.strip('{}')
+            if ruta not in self.rutas_archivos and ruta.lower().endswith(('.xlsx', '.xls')):
+                self.rutas_archivos.append(ruta)
+                self.crear_item_lista(ruta)
 
-# --- 2. DISEÑO DE LA VENTANA (CustomTkinter) ---
-ctk.set_appearance_mode("dark")  # Opciones: "dark", "light", "system"
-ctk.set_default_color_theme("blue") # Opciones: "blue", "green", "dark-blue"
-app = ctk.CTk()
-app.title("Automatizador de incrementos")
-app.geometry("500x350")
+    def crear_item_lista(self, ruta):
+        nombre = os.path.basename(ruta)
+        
+        # Contenedor de la fila
+        fila = ctk.CTkFrame(self.lista_iconos_frame, fg_color="transparent")
+        fila.pack(fill="x", pady=2)
+        
+        # Icono de Excel
+        label_img = ctk.CTkLabel(fila, image=self.icono_excel, text="") if self.icono_excel else ctk.CTkLabel(fila, text="📄")
+        label_img.pack(side="left", padx=5)
+        
+        # Nombre del archivo
+        label_nombre = ctk.CTkLabel(fila, text=nombre, anchor="w")
+        label_nombre.pack(side="left", padx=5, expand=True, fill="x")
 
-# Buscador de archivo
-ctk.CTkLabel(app, text="Selecciona tu archivo Excel:", font=("Arial", 13, "bold")).pack(pady=(20, 0))
-frame_path = ctk.CTkFrame(app)
-frame_path.pack(pady=10, padx=20, fill="x")
+        # Botón eliminar (Basurero)
+        btn_eliminar = ctk.CTkButton(fila, text="🗑", width=30, height=30, 
+                                     fg_color="#A12121", hover_color="#E63946",
+                                     command=lambda r=ruta, f=fila: self.eliminar_archivo(r, f))
+        btn_eliminar.pack(side="right", padx=5)
 
-entry_path = ctk.CTkEntry(frame_path, placeholder_text="Ruta del archivo...")
-entry_path.pack(side="left", padx=10, expand=True, fill="x")
+    def eliminar_archivo(self, ruta, frame_fila):
+        # Eliminar de la lista lógica
+        if ruta in self.rutas_archivos:
+            self.rutas_archivos.remove(ruta)
+        # Eliminar de la interfaz visual
+        frame_fila.destroy()
 
-btn_buscar = ctk.CTkButton(frame_path, text="Buscar", width=100, command=buscar_archivo)
-btn_buscar.pack(side="right", padx=10)
+    def ejecutar_macro(self):
+        try:
+            factor = 1 + (float(self.entry_porcentaje.get()) / 100)
+        except ValueError:
+            messagebox.showerror("Error", "Ingresa un porcentaje válido.")
+            return
 
-# Porcentaje
-ctk.CTkLabel(app, text="Porcentaje de aumento (%):", font=("Arial", 13, "bold")).pack(pady=(20, 0))
-entry_porcentaje = ctk.CTkEntry(app, width=120, placeholder_text="Ej: 15")
-entry_porcentaje.insert(0, "15") # Valor inicial por defecto
-entry_porcentaje.pack(pady=10)
+        if not self.rutas_archivos:
+            messagebox.showwarning("Atención", "No hay archivos seleccionados.")
+            return
 
-# Botón de ejecución
-btn_ejecutar = ctk.CTkButton(app, text="APLICAR MACRO", fg_color="#0B1575", hover_color="#2808B4", 
-                             height=45, font=("Arial", 14, "bold"), command=ejecutar_macro)
-btn_ejecutar.pack(pady=30)
+        exitos = 0
+        for ruta in self.rutas_archivos:
+            try:
+                wb = openpyxl.load_workbook(ruta)
+                for hoja in wb.worksheets:
+                    for fila in hoja.iter_rows():
+                        for celda in fila:
+                            if isinstance(celda.value, (int, float)):
+                                celda.value *= factor
+                wb.save(ruta)
+                exitos += 1
+            except Exception as e:
+                print(f"Error en {ruta}: {e}")
 
-app.mainloop()
+        messagebox.showinfo("Hecho", f"Se procesaron {exitos} archivos correctamente.")
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
