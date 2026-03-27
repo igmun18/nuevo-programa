@@ -11,7 +11,7 @@ class App(ctk.CTk, TkinterDnD.Tk):
         TkinterDnD.Tk.__init__(self)
         
         ctk.set_appearance_mode("dark")
-        self.title("Macro Excel Pro")
+        self.title("Mi primer programa c: ")
         self.geometry("600x700")
 
         # --- 1. CARGA DE ICONO ---
