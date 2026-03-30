@@ -7,12 +7,17 @@ import openpyxl
 
 class App(ctk.CTk, TkinterDnD.Tk):
     def __init__(self):
+        
         ctk.CTk.__init__(self)
         TkinterDnD.Tk.__init__(self)
-        
         ctk.set_appearance_mode("dark")
-        self.title("Macro Excel Pro")
+        self.title("Mi primer programa c: ")
         self.geometry("600x700")
+        self.configure(fg_color="#242424")
+
+
+
+
 
         # --- 1. CARGA DE ICONO ---
         try:
