@@ -12,6 +12,37 @@ from datetime import datetime
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment
 
+def obtener_rango_combinado(ws, fila, columna):
+    """
+    Devuelve el rango combinado al que pertenece una celda (fila, columna).
+    Si no pertenece a ninguno, devuelve None.
+    """
+
+    # 🛡️ validación inicial
+    if fila is None or columna is None:
+        return None
+
+    for rango in ws.merged_cells.ranges:
+        try:
+            min_row = rango.min_row
+            max_row = rango.max_row
+            min_col = rango.min_col
+            max_col = rango.max_col
+
+            # 🛡️ evitar rangos corruptos o incompletos
+            if None in (min_row, max_row, min_col, max_col):
+                continue
+
+            # 🔍 chequeo de pertenencia
+            if (min_row <= fila <= max_row) and (min_col <= columna <= max_col):
+                return rango
+
+        except Exception:
+            # ignorar rangos problemáticos sin romper el flujo
+            continue
+
+    return None
+
 class App(ctk.CTk, TkinterDnD.Tk):
     def __init__(self):
 
@@ -20,7 +51,7 @@ class App(ctk.CTk, TkinterDnD.Tk):
 
         ctk.set_appearance_mode("dark")
         self.title("Mi primer programa c:")
-        self.geometry("700x750")
+        self.geometry("700x700")
         self.configure(fg_color="#242424")
 
         # ---------------- ICONO ----------------
@@ -166,6 +197,7 @@ class App(ctk.CTk, TkinterDnD.Tk):
         self.renderizar_iconos()
 
     # ---------------- MACRO ----------------
+    
 
     def ejecutar_macro(self):
 
@@ -173,62 +205,87 @@ class App(ctk.CTk, TkinterDnD.Tk):
             factor = 1 + (float(self.entry_porcentaje.get()) / 100)
         except ValueError:
             messagebox.showerror("Error", "Ingresa un porcentaje válido.")
-            return  # ✔ ahora sí está bien
+            return
 
         if not self.rutas_archivos:
             messagebox.showwarning("Atención", "No hay archivos seleccionados.")
-            return  # ✔ bien indentado
+            return
 
         exitos = 0
 
         for ruta in self.rutas_archivos:
             try:
-                wb = openpyxl.load_workbook(ruta,data_only=True)
+                wb = openpyxl.load_workbook(ruta, data_only=True)
 
                 for ws in wb.worksheets:
 
                     fila_header = None
-                    col_fecha = None
 
-                    # 🔍 BUSCAR HEADER
+                    # 🔍 BUSCAR HEADER (fila que contiene fecha)
                     for fila in range(1, 15):
-                        col_valores = ws.max_column
+                        for col in range(ws.max_column, 0, -1):
 
-                        valor = ws.cell(row=fila, column=col_valores).value
+                            valor = ws.cell(row=fila, column=col).value
 
-                        if isinstance(valor, datetime):
-                            fila_header = fila
-                            col_fecha = col_valores
-                            break
-
-                        elif isinstance(valor, str):
-                            try:
-                                datetime.strptime(valor, "%d/%m/%Y")
+                            if isinstance(valor, datetime):
                                 fila_header = fila
-                                col_fecha = col_valores
                                 break
-                            except:
-                                pass
+
+                            elif isinstance(valor, str):
+                                try:
+                                    datetime.strptime(valor, "%d/%m/%Y")
+                                    fila_header = fila
+                                    break
+                                except:
+                                    pass
 
                         if fila_header:
                             break
 
                     if not fila_header:
+                        print(f"⚠️ Hoja ignorada: {ws.title}")
                         continue
 
-                    ultima_columna = ws.max_column
-                    nueva_columna = ultima_columna + 1
-                    col_valores2 = ultima_columna
+                    # 🔥 BUSCAR ÚLTIMA COLUMNA CON FECHA REAL
+                    ultima_columna = None
 
-                    header_origen = ws.cell(row=fila_header, column=col_valores2)
-                    header_destino = ws.cell(row=fila_header, column=nueva_columna)
+                    for col in range(ws.max_column, 0, -1):
+                        valor = ws.cell(row=fila_header, column=col).value
 
-                    fecha = header_origen.value
+                        if isinstance(valor, datetime):
+                            ultima_columna = col
+                            break
 
-                    if isinstance(fecha, datetime):
-                        pass
+                        elif isinstance(valor, str):
+                            try:
+                                datetime.strptime(valor, "%d/%m/%Y")
+                                ultima_columna = col
+                                break
+                            except:
+                                pass
 
-                    elif isinstance(fecha, str):
+                    if ultima_columna is None:
+                        print(f"⚠️ No se encontró columna válida en {ws.title}")
+                        continue
+
+                    # 🔥 DETECTAR BLOQUE REAL (merge)
+                    rango_header = obtener_rango_combinado(ws, fila_header, ultima_columna)
+
+                    if rango_header and rango_header.min_row == rango_header.max_row:
+                        col_inicio = rango_header.min_col
+                        col_fin = rango_header.max_col
+                    else:
+                        col_inicio = ultima_columna
+                        col_fin = ultima_columna
+
+                    cantidad_columnas = col_fin - col_inicio + 1
+                    nueva_col_inicio = col_fin + 1
+
+                    # 📅 FECHA BASE (SIEMPRE desde la primera del merge)
+                    header_base = ws.cell(row=fila_header, column=col_inicio)
+                    fecha = header_base.value
+
+                    if isinstance(fecha, str):
                         try:
                             fecha = datetime.strptime(fecha, "%d/%m/%Y")
                         except:
@@ -240,67 +297,86 @@ class App(ctk.CTk, TkinterDnD.Tk):
 
                     if not fecha:
                         continue
-                    
-                    nueva_fecha = fecha + relativedelta(months=1)
-                    header_destino.value = nueva_fecha
-                    header_destino.number_format = "DD/MM/YYYY"
 
-                    # copiar estilo
-                    header_destino.font = copy(header_origen.font)
-                    header_destino.border = copy(header_origen.border)
-                    header_destino.fill = copy(header_origen.fill)
-                    header_destino.alignment = copy(header_origen.alignment)
+                    nueva_fecha = fecha + relativedelta(months=1)
+
+                    # 🧱 COPIAR HEADER COMPLETO
+                    for i in range(cantidad_columnas):
+                        col_origen = col_inicio + i
+                        col_destino = nueva_col_inicio + i
+
+                        header_origen = ws.cell(row=fila_header, column=col_origen)
+                        header_destino = ws.cell(row=fila_header, column=col_destino)
+
+                        header_destino.value = header_origen.value
+
+                        header_destino.font = copy(header_origen.font)
+                        header_destino.border = copy(header_origen.border)
+                        header_destino.fill = copy(header_origen.fill)
+                        header_destino.alignment = copy(header_origen.alignment)
+
+                    # 📅 nueva fecha solo en la primera
+                    ws.cell(row=fila_header, column=nueva_col_inicio).value = nueva_fecha
+                    ws.cell(row=fila_header, column=nueva_col_inicio).number_format = "DD/MM/YYYY"
+
+                    # 🔗 recrear merge
+                    if cantidad_columnas > 1:
+                        ws.merge_cells(
+                            start_row=fila_header,
+                            end_row=fila_header,
+                            start_column=nueva_col_inicio,
+                            end_column=nueva_col_inicio + cantidad_columnas - 1
+                        )
 
                     # 🔢 DATOS
                     for fila in range(fila_header + 1, ws.max_row + 1):
+                        for i in range(cantidad_columnas):
 
-                        celda_origen = ws.cell(row=fila, column=col_fecha)
-                        celda_destino = ws.cell(row=fila, column=nueva_columna)
+                            col_origen = col_inicio + i
+                            col_destino = nueva_col_inicio + i
 
-                        valor = celda_origen.value
+                            celda_origen = ws.cell(row=fila, column=col_origen)
+                            celda_destino = ws.cell(row=fila, column=col_destino)
 
-                        if isinstance(valor, (int, float)):
-                            celda_destino.value = valor * factor
+                            valor = celda_origen.value
 
-                        elif isinstance(valor, str):
-                            match = re.search(r'(NN\s*[xX]\s*)(\d+)', valor)
+                            if isinstance(valor, (int, float)):
+                                celda_destino.value = round(valor * factor,2)
 
-                            if match:
-                                prefijo = match.group(1)   # "NN X "
-                                numero = match.group(2)    # "1500"
+                            elif isinstance(valor, str):
+                                match = re.search(r'(NN\s*[xX]\s*)(\d+)', valor)
 
-                                nuevo_valor = float(numero) * factor
-
-                                # si querés entero:
-                                nuevo_valor = float(nuevo_valor)
-
-                                celda_destino.value = f"{prefijo}{nuevo_valor}"
+                                if match:
+                                    prefijo = match.group(1)
+                                    numero = match.group(2)
+                                    celda_destino.value = f"{prefijo}{round(float(numero) * factor,2)}"
+                                else:
+                                    celda_destino.value = valor
                             else:
-                                celda_destino.value = valor       
-                        else:
-                            celda_destino.value = valor
+                                celda_destino.value = valor
 
-                        if celda_origen.has_style:
-                            celda_destino.font = copy(celda_origen.font)
-                            celda_destino.border = copy(celda_origen.border)
-                            celda_destino.fill = copy(celda_origen.fill)
-                            celda_destino.number_format = copy(celda_origen.number_format)
-                            celda_destino.alignment = copy(celda_origen.alignment)
+                            if celda_origen.has_style:
+                                celda_destino.font = copy(celda_origen.font)
+                                celda_destino.border = copy(celda_origen.border)
+                                celda_destino.fill = copy(celda_origen.fill)
+                                celda_destino.number_format = copy(celda_origen.number_format)
+                                celda_destino.alignment = copy(celda_origen.alignment)
 
-                    # ancho columna
-                    letra_orig = get_column_letter(col_fecha)
-                    letra_dest = get_column_letter(nueva_columna)
-                    ws.column_dimensions[letra_dest].width = ws.column_dimensions[letra_orig].width
-                print(nueva_fecha)       
-                nuevo_nombre = ruta.replace(".xlsx", f"_{nueva_fecha}.xlsx")
-                wb.save(nuevo_nombre)
+                    # 📏 ancho columnas
+                    for i in range(cantidad_columnas):
+                        col_origen = get_column_letter(col_inicio + i)
+                        col_destino = get_column_letter(nueva_col_inicio + i)
 
+                        ws.column_dimensions[col_destino].width = ws.column_dimensions[col_origen].width
+
+                wb.save(ruta)
                 exitos += 1
 
             except Exception as e:
                 print(f"Error en {ruta}: {e}")
 
         messagebox.showinfo("Hecho", f"Se procesaron {exitos} archivos correctamente.")
+
 
 if __name__ == "__main__": 
     app = App() 
