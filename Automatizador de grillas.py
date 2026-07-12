@@ -127,6 +127,7 @@ class LoadingScreen:
     def __init__(self, parent, gif_path=None):
         self.parent = parent
         self.ventana = ctk.CTkToplevel(parent)
+        self.ventana.configure(fg_color="black") 
         self.ventana.title("Procesando...")
         self.ventana.geometry("320x260")
         self.ventana.resizable(False, False)

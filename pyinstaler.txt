@@ -1,0 +1,1 @@
+pyinstaller --onefile --windowed --icon=icono.ico --add-data "icono.ico;." --add-data "excel_icon.png;." --add-data "carga.gif;." Automatizador de grillas.py"
